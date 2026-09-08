@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DOWNPOUR — a quiet race to the bottom</title>
+<meta name="description" content="Blocks fall. Someone is watching. Share a code, stack fast, send the overflow." />
+<meta name="color-scheme" content="dark" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230a0d14'/%3E%3Crect x='7' y='6' width='8' height='8' rx='2' fill='%237c6bff'/%3E%3Crect x='17' y='12' width='8' height='8' rx='2' fill='%2334d2c2'/%3E%3Crect x='7' y='18' width='8' height='8' rx='2' fill='%23ff7a93'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+<canvas id="rain" aria-hidden="true"></canvas>
+<div class="glow" aria-hidden="true"></div>
+
+<!-- ───────────────────────── landing ───────────────────────── -->
+<main id="screen-landing" class="screen is-active">
+  <div class="landing">
+    <header class="landing-head">
+      <div class="mark" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+      <h1 class="wordmark">DOWNPOUR</h1>
+      <p class="tagline">Blocks fall. Someone is watching.</p>
+      <p class="blurb">
+        Open a room, pass the four letters to a friend, and stack against each other
+        in the same weather. Clear lines and the overflow lands on somebody else.
+        Last board standing wins the rain.
+      </p>
+    </header>
+
+    <div class="panel join-panel">
+      <label class="field">
+        <span class="field-label">Your name</span>
+        <input id="input-name" type="text" maxlength="14" placeholder="anon" autocomplete="off" spellcheck="false" />
+      </label>
+
+      <button id="btn-create" class="btn btn-primary btn-block">
+        Open a room
+        <span class="btn-note">you get a code to share</span>
+      </button>
+
+      <div class="rule"><span>or</span></div>
+
+      <form id="form-join" class="join-row" autocomplete="off">
+        <input id="input-code" class="code-input" type="text" maxlength="5" placeholder="CODE"
+               inputmode="latin" autocapitalize="characters" spellcheck="false" aria-label="Room code" />
+        <button id="btn-join" class="btn btn-ghost" type="submit">Join</button>
+      </form>
+
+      <p id="landing-error" class="error" role="status"></p>
+    </div>
+
+    <div class="landing-foot">
+      <button id="btn-solo" class="linkish">Warm up alone →</button>
+      <ul class="keys">
+        <li><kbd>←</kbd><kbd>→</kbd> move</li>
+        <li><kbd>↑</kbd> rotate</li>
+        <li><kbd>space</kbd> drop</li>
+        <li><kbd>shift</kbd> hold</li>
+      </ul>
+    </div>
+  </div>
+</main>
+
+<!-- ───────────────────────── room ───────────────────────── -->
+<main id="screen-room" class="screen">
+  <header class="topbar">
+    <button id="btn-leave" class="chip chip-quiet" title="Back to the landing screen">← leave</button>
+    <div class="topbar-mid">
+      <span class="topbar-brand">DOWNPOUR</span>
+      <button id="btn-code" class="chip chip-code" title="Copy the room code">
+        <span class="chip-key">room</span>
+        <strong id="room-code">----</strong>
+        <span id="copy-hint" class="chip-hint">copy</span>
+      </button>
+    </div>
+    <div class="chip chip-quiet"><span id="player-count">1</span> in the room</div>
+  </header>
+
+  <div class="stage">
+    <!-- left rail -->
+    <aside class="rail rail-left">
+      <section class="panel tile">
+        <h2 class="tile-title">Hold</h2>
+        <canvas id="canvas-hold" class="mini-canvas" width="120" height="90"></canvas>
+      </section>
+      <section class="panel tile stats">
+        <div class="stat"><span>Lines</span><strong id="stat-lines">0</strong></div>
+        <div class="stat"><span>Score</span><strong id="stat-score">0</strong></div>
+        <div class="stat"><span>Level</span><strong id="stat-level">1</strong></div>
+        <div class="stat"><span>Sent</span><strong id="stat-sent">0</strong></div>
+      </section>
+      <section class="panel tile legend">
+        <h2 class="tile-title">Controls</h2>
+        <dl>
+          <div><dt><kbd>←</kbd><kbd>→</kbd></dt><dd>move</dd></div>
+          <div><dt><kbd>↓</kbd></dt><dd>soft drop</dd></div>
+          <div><dt><kbd>↑</kbd><kbd>X</kbd></dt><dd>rotate cw</dd></div>
+          <div><dt><kbd>Z</kbd></dt><dd>rotate ccw</dd></div>
+          <div><dt><kbd>space</kbd></dt><dd>hard drop</dd></div>
+          <div><dt><kbd>shift</kbd><kbd>C</kbd></dt><dd>hold</dd></div>
+        </dl>
+      </section>
+    </aside>
+
+    <!-- board -->
+    <section class="board-wrap">
+      <div class="board-frame">
+        <canvas id="canvas-board" width="300" height="600"></canvas>
+        <div id="garbage-gauge" class="gauge" aria-hidden="true"><div id="gauge-fill"></div></div>
+        <div id="flash" class="flash"></div>
+
+        <div id="overlay" class="overlay">
+          <div id="overlay-body" class="overlay-body"></div>
+        </div>
+      </div>
+      <p id="ticker" class="ticker"></p>
+    </section>
+
+    <!-- right rail -->
+    <aside class="rail rail-right">
+      <section class="panel tile">
+        <h2 class="tile-title">Next</h2>
+        <canvas id="canvas-next" class="mini-canvas" width="120" height="280"></canvas>
+      </section>
+      <section class="panel tile opponents">
+        <h2 class="tile-title">Their boards</h2>
+        <div id="opponents" class="opponent-grid">
+          <p class="empty-note">Nobody else yet. Send them the code.</p>
+        </div>
+      </section>
+    </aside>
+  </div>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
