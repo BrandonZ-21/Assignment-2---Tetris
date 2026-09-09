@@ -113,11 +113,19 @@ el.create.addEventListener('click', async () => {
   el.create.disabled = true;
   try {
     const res = await fetch('/api/new');
+    // A static-only host answers /api/new with the index page instead of
+    // JSON, which used to surface as a vague "try again". Name it instead.
+    const kind = res.headers.get('content-type') || '';
+    if (!kind.includes('json')) {
+      throw new Error('no worker: /api/new returned ' + (kind || 'nothing'));
+    }
     if (!res.ok) throw new Error('bad response');
     const data = await res.json();
     enterRoom(data.room);
   } catch (err) {
-    fail('Could not reach the room service. Try again.');
+    fail(String(err.message).startsWith('no worker')
+      ? 'No game server here. This build was deployed as a static site — it needs to run as a Cloudflare Worker.'
+      : 'Could not reach the room service. Try again.');
   } finally {
     el.create.disabled = false;
   }

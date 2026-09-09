@@ -52,10 +52,21 @@ Legend: `[x]` done · `[ ]` not started · `[~]` done but not yet verified live
   to `single-page-application`, `run_worker_first` for `/api/*` so the API is
   not swallowed by that fallback. Done when: `npx wrangler deploy` succeeds.
 
-- [ ] **1.9 Single-player game live on the internet** ← *the safety net*
+- [~] **1.9 Single-player game live on the internet** ← *the safety net*
   Depends on: 1.3–1.8.
-  Done when: the `workers.dev` URL opens, "Warm up alone" plays a full game,
-  and you can send the link to someone who is not you.
+  Done when: the URL opens, "Warm up alone" plays a full game, and you can send
+  the link to someone who is not you.
+  *Live at `assignment2-tetris.pages.dev` and the solo game runs — but see 1.10.*
+
+- [ ] **1.10 Redeploy as a Worker, not Pages** ← *blocks everything multiplayer*
+  The current deployment is a Cloudflare **Pages** project, which serves the
+  static files and nothing else. Three consequences, all confirmed against the
+  live URL: `/api/new` answers with `index.html` instead of JSON, so no room can
+  be opened; Durable Objects cannot run on Pages at all, so no room could exist
+  even if the route did; and `.assetsignore` is a Workers feature that Pages
+  ignores, so `src/index.js`, `wrangler.jsonc` and `package.json` are being
+  served publicly.
+  Done when: the game is on a `workers.dev` URL and `/api/new` returns JSON.
 
 ---
 
