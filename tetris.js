@@ -338,12 +338,14 @@ export class Game {
       cells: this.board.slice(y * COLS, y * COLS + COLS),
     }));
 
-    // Removing from the bottom up leaves the remaining indices valid: taking
-    // out row y only shifts the rows above it, which are all still to come.
-    for (const y of full) {
-      this.board.copyWithin(COLS, 0, y * COLS);
+    // Taking out a row shifts everything above it DOWN by one, so every row
+    // still to be removed has slid down by however many are already gone.
+    // Without the +i this deletes the wrong row and leaves a full one behind.
+    full.forEach((y, i) => {
+      const at = y + i;
+      this.board.copyWithin(COLS, 0, at * COLS);
       this.board.fill(0, 0, COLS);
-    }
+    });
 
     this.onClear(broken);
     return full.length;

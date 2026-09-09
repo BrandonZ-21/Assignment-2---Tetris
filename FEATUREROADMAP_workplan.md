@@ -105,10 +105,15 @@ Legend: `[x]` done · `[ ]` not started · `[~]` done but not yet verified live
   Done when: the loser sees their place, the winner sees the standings, and the
   host can send everyone back to the room for another round.
 
-- [ ] **2.7 Two players live on the internet** ← *the assignment's bar*
+- [~] **2.7 Two players live on the internet** ← *the assignment's bar*
   Depends on: 2.1–2.6 deployed.
   Done when: two browser windows are open to the live URL, both typed the same
   room code, and each can see the other player's blocks moving.
+  *Verified at the protocol level against the live Worker
+  (`assignment-2---tetris.brandonzhao.workers.dev`): two sockets joined one
+  room code, the roster agreed, both got the same seed, one player's board
+  relayed to the other, garbage crossed, and the standings came back correct.
+  Still needs a human to confirm it with two real windows.*
 
 ---
 
@@ -137,10 +142,32 @@ Legend: `[x]` done · `[ ]` not started · `[~]` done but not yet verified live
 
 ## Phase 4 — finishing
 
-- [ ] **4.1 Run the test suites again**
-  The engine suite (rotation, clears, garbage, attack maths) and the room suite
-  (roster, host, attack routing, standings) both passed before the Phase 3 and
-  timer changes. They need re-running. Done when: both are green again.
+- [x] **4.1a Engine suite re-run** — 12 checks green (determinism, bag, clears,
+  garbage, attack maths, kicks, hold, top-out), run against the deployed
+  `tetris.js` with the 4.4 fix applied.
+
+- [x] **4.1b Room logic re-verified**
+  Superseded by something better than the mock suite: the same behaviours were
+  driven against the real Durable Object on the live Worker — join, roster,
+  host election, ready, start, seed agreement, board relay, garbage routing,
+  top-out and standings. 14 checks, all green, after the timer removal in 2.3.
+
+- [x] **4.5 Confirm the source is no longer public**
+  Files: `.assetsignore`, `wrangler.jsonc`.
+  On Pages this was broken — `/src/index.js` and `/wrangler.jsonc` were
+  downloadable. On the Worker all four now return the SPA fallback instead of
+  file contents. `.assetsignore` only works on Workers, which is one more
+  reason the Pages deploy had to go.
+
+- [x] **4.4 Fix multi-row line clears** *(regression, found in play)*
+  Files: `tetris.js`.
+  Reworking `clearLines` to report cleared rows for the shatter dropped the
+  index compensation. Removing a row shifts the rows above it down by one, so
+  every row still to be removed has moved; without `+i` the wrong row was
+  deleted and a full row was left stuck at the bottom, which then re-cleared on
+  every lock until the board became unplayable. Single clears were unaffected,
+  which is why it survived the first look. Done when: double, triple, tetris and
+  non-adjacent clears all leave no full rows behind — verified, 5 cases.
 
 - [ ] **4.2 Play a real two-window round on the live URL**
   Done when: a full round completes, garbage crosses between boards, and the
