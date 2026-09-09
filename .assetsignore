@@ -1,0 +1,16 @@
+# The site is served from the repository root, so everything that is not a
+# public asset has to be excluded here or Cloudflare would publish it.
+src
+src/*
+node_modules
+node_modules/*
+.git
+.git/*
+.wrangler
+.wrangler/*
+.gitignore
+.assetsignore
+wrangler.jsonc
+package.json
+package-lock.json
+README.md

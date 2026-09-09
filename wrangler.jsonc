@@ -2,11 +2,20 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "downpour",
   "main": "src/index.js",
-  "compatibility_date": "2025-09-01",
+  "compatibility_date": "2026-09-08",
   "observability": { "enabled": true },
+  // The site is served from the repository root; .assetsignore keeps the
+  // Worker source and the config files out of what gets published.
+  //
+  // "single-page-application" makes any unmatched path fall back to
+  // index.html. On its own that would swallow the API too, so
+  // run_worker_first sends /api/* to the Worker before the asset router
+  // ever sees it — that is where the room WebSocket lives.
   "assets": {
-    "directory": "./public",
-    "binding": "ASSETS"
+    "directory": "./",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   },
   "durable_objects": {
     "bindings": [

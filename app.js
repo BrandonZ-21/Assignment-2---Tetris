@@ -442,8 +442,11 @@ el.overlayBody.addEventListener('click', (event) => {
 /* ─────────────── game wiring ─────────────── */
 
 function resetGame(seed) {
+  shards.length = 0;
+  rowFlashes.length = 0;
   app.game = new Game({
     seed,
+    onClear: (rows) => spawnShatter(rows),
     onAttack: (n) => { if (!app.solo) send({ t: 'attack', n }); },
     onTopOut: () => {
       if (app.solo) { setMode('over'); return; }
@@ -588,38 +591,168 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// Colours are authored as hex; glass needs them at arbitrary alpha.
+const RGB_CACHE = {};
+function withAlpha(hex, a) {
+  if (!RGB_CACHE[hex]) {
+    const n = parseInt(hex.slice(1), 16);
+    RGB_CACHE[hex] = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  const [r, g, b] = RGB_CACHE[hex];
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// A block of glass: you see through the middle, the edges hold the colour,
+// and one corner catches the light.
 function drawCell(ctx, x, y, size, colorIndex, opts = {}) {
-  const pad = Math.max(1, size * 0.06);
+  const color = COLORS[colorIndex] || '#8891a8';
+  const pad = size * 0.05;
   const s = size - pad * 2;
-  const r = Math.max(2, size * 0.16);
-  const color = COLORS[colorIndex] || '#666';
+  const r = Math.max(2, size * 0.18);
+  const left = x + pad;
+  const top = y + pad;
 
   if (opts.ghost) {
-    ctx.globalAlpha = 0.16;
-    ctx.fillStyle = color;
-    roundRect(ctx, x + pad, y + pad, s, s, r);
-    ctx.fill();
-    ctx.globalAlpha = 0.5;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = Math.max(1, size * 0.06);
-    roundRect(ctx, x + pad, y + pad, s, s, r);
+    ctx.save();
+    ctx.strokeStyle = withAlpha(color, 0.45);
+    ctx.lineWidth = Math.max(1, size * 0.045);
+    ctx.setLineDash([size * 0.18, size * 0.13]);
+    roundRect(ctx, left, top, s, s, r);
     ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.restore();
     return;
   }
 
-  ctx.fillStyle = color;
-  roundRect(ctx, x + pad, y + pad, s, s, r);
+  ctx.save();
+  if (opts.alpha !== undefined) ctx.globalAlpha = opts.alpha;
+
+  // the pane: thin through the middle, denser where it turns
+  const body = ctx.createLinearGradient(left, top, left + s, top + s);
+  body.addColorStop(0, withAlpha(color, 0.62));
+  body.addColorStop(0.45, withAlpha(color, 0.22));
+  body.addColorStop(1, withAlpha(color, 0.5));
+  ctx.fillStyle = body;
+  roundRect(ctx, left, top, s, s, r);
   ctx.fill();
 
-  // one soft light source, top-left
-  const grad = ctx.createLinearGradient(x, y, x, y + size);
-  grad.addColorStop(0, 'rgba(255,255,255,0.28)');
-  grad.addColorStop(0.45, 'rgba(255,255,255,0.04)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.22)');
-  ctx.fillStyle = grad;
-  roundRect(ctx, x + pad, y + pad, s, s, r);
+  // thickness — light on top, shadow pooling at the bottom
+  const depth = ctx.createLinearGradient(left, top, left, top + s);
+  depth.addColorStop(0, 'rgba(255,255,255,0.20)');
+  depth.addColorStop(0.5, 'rgba(255,255,255,0.02)');
+  depth.addColorStop(1, 'rgba(0,0,0,0.26)');
+  ctx.fillStyle = depth;
+  roundRect(ctx, left, top, s, s, r);
   ctx.fill();
+
+  // a specular streak laid across the top-left corner
+  ctx.save();
+  roundRect(ctx, left, top, s, s, r);
+  ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,0.26)';
+  ctx.beginPath();
+  ctx.moveTo(left - s * 0.10, top + s * 0.44);
+  ctx.lineTo(left + s * 0.50, top - s * 0.10);
+  ctx.lineTo(left + s * 0.74, top - s * 0.10);
+  ctx.lineTo(left - s * 0.10, top + s * 0.70);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+
+  // the polished edge
+  const rim = ctx.createLinearGradient(left, top, left + s, top + s);
+  rim.addColorStop(0, 'rgba(255,255,255,0.85)');
+  rim.addColorStop(0.4, withAlpha(color, 0.75));
+  rim.addColorStop(1, 'rgba(255,255,255,0.26)');
+  ctx.strokeStyle = rim;
+  ctx.lineWidth = Math.max(1, size * 0.055);
+  roundRect(ctx, left, top, s, s, r);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+/* ─────────────── glass shatter ─────────────── */
+
+// Shards are tracked in board cells rather than pixels, so a window resize
+// mid-flight doesn't tear them apart.
+const shards = [];
+const rowFlashes = [];
+const MAX_SHARDS = 900;
+
+function makeShard(x, y, color) {
+  const angle = Math.random() * Math.PI * 2;
+  const speed = 0.0016 + Math.random() * 0.0055;   // cells per millisecond
+  const corners = 3 + (Math.random() < 0.45 ? 1 : 0);
+  const pts = [];
+  for (let i = 0; i < corners; i++) {
+    const a = (i / corners) * Math.PI * 2 + Math.random() * 0.7;
+    const rad = 0.10 + Math.random() * 0.22;
+    pts.push([Math.cos(a) * rad, Math.sin(a) * rad]);
+  }
+  const life = 700 + Math.random() * 700;
+  return {
+    x, y, color, pts, life, max: life,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed - 0.004,   // kicked upward, then gravity wins
+    rot: Math.random() * Math.PI,
+    vrot: (Math.random() - 0.5) * 0.012,
+  };
+}
+
+function spawnShatter(rows) {
+  for (const row of rows) {
+    const vy = row.y - BUFFER;
+    if (vy < 0 || vy >= VISIBLE) continue;
+    rowFlashes.push({ y: vy, life: 420, max: 420 });
+    for (let x = 0; x < COLS; x++) {
+      const v = row.cells[x];
+      if (!v) continue;
+      for (let i = 0; i < 5 && shards.length < MAX_SHARDS; i++) {
+        shards.push(makeShard(x + Math.random(), vy + Math.random(), COLORS[v]));
+      }
+    }
+  }
+}
+
+function stepShatter(dt) {
+  const gravity = 0.000022;   // cells per millisecond squared
+  for (let i = shards.length - 1; i >= 0; i--) {
+    const s = shards[i];
+    s.life -= dt;
+    if (s.life <= 0) { shards.splice(i, 1); continue; }
+    s.vy += gravity * dt;
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.rot += s.vrot * dt;
+  }
+  for (let i = rowFlashes.length - 1; i >= 0; i--) {
+    rowFlashes[i].life -= dt;
+    if (rowFlashes[i].life <= 0) rowFlashes.splice(i, 1);
+  }
+}
+
+function drawShatter(ctx, size) {
+  for (const f of rowFlashes) {
+    const t = f.life / f.max;
+    ctx.fillStyle = `rgba(255,255,255,${0.5 * t * t})`;
+    ctx.fillRect(0, f.y * size, COLS * size, size);
+  }
+  for (const s of shards) {
+    const t = Math.max(0, s.life / s.max);
+    ctx.save();
+    ctx.translate(s.x * size, s.y * size);
+    ctx.rotate(s.rot);
+    ctx.beginPath();
+    ctx.moveTo(s.pts[0][0] * size, s.pts[0][1] * size);
+    for (let i = 1; i < s.pts.length; i++) ctx.lineTo(s.pts[i][0] * size, s.pts[i][1] * size);
+    ctx.closePath();
+    ctx.fillStyle = withAlpha(s.color, 0.5 * t);
+    ctx.fill();
+    ctx.strokeStyle = `rgba(255,255,255,${0.8 * t})`;
+    ctx.lineWidth = Math.max(0.6, size * 0.03);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 function drawBoard() {
@@ -630,6 +763,13 @@ function drawBoard() {
   const g = app.game;
 
   ctx.clearRect(0, 0, w, h);
+
+  // frosted backing, so the blocks in front of it read as translucent
+  const backing = ctx.createLinearGradient(0, 0, 0, h);
+  backing.addColorStop(0, 'rgba(255,255,255,0.055)');
+  backing.addColorStop(1, 'rgba(255,255,255,0.015)');
+  ctx.fillStyle = backing;
+  ctx.fillRect(0, 0, w, h);
 
   // grid
   ctx.strokeStyle = 'rgba(255,255,255,0.035)';
@@ -666,6 +806,8 @@ function drawBoard() {
       if (y >= BUFFER) drawCell(ctx, x * size, (y - BUFFER) * size, size, id);
     }
   }
+
+  drawShatter(ctx, size);
 }
 
 function drawPiecePreview(ctx, type, cx, cy, size) {
@@ -783,8 +925,12 @@ function paintOpponent(id) {
     if (!v) continue;
     const x = i % COLS;
     const y = (i / COLS) | 0;
-    ctx.fillStyle = COLORS[v] || '#666';
+    // same glass idea, cheap enough to run on five boards at once
+    const c = COLORS[v] || '#8891a8';
+    ctx.fillStyle = withAlpha(c, 0.40);
     ctx.fillRect(x * size, y * size, size - 1, size - 1);
+    ctx.fillStyle = withAlpha(c, 0.85);
+    ctx.fillRect(x * size, y * size, size - 1, Math.max(1, size * 0.24));
   }
 }
 
@@ -816,6 +962,7 @@ function frame(now) {
   }
 
   if (el.room.classList.contains('is-active')) {
+    stepShatter(dt);   // shards keep flying even while an overlay is up
     drawBoard();
     drawSideCanvases();
   }

@@ -116,6 +116,8 @@ export class Game {
     this.onAttack = opts.onAttack || (() => {});
     this.onTopOut = opts.onTopOut || (() => {});
     this.onEvent = opts.onEvent || (() => {});
+    // Fires with the rows that just vanished, so the view can shatter them.
+    this.onClear = opts.onClear || (() => {});
     this.reset(this.seed);
   }
 
@@ -319,19 +321,32 @@ export class Game {
   }
 
   clearLines() {
-    let cleared = 0;
+    // Find the full rows first, bottom-most one first.
+    const full = [];
     for (let y = ROWS - 1; y >= 0; y--) {
-      let full = true;
+      let complete = true;
       for (let x = 0; x < COLS; x++) {
-        if (!this.board[y * COLS + x]) { full = false; break; }
+        if (!this.board[y * COLS + x]) { complete = false; break; }
       }
-      if (!full) continue;
-      cleared++;
+      if (complete) full.push(y);
+    }
+    if (!full.length) return 0;
+
+    // Keep a copy of what was there so the view can break it apart.
+    const broken = full.map((y) => ({
+      y,
+      cells: this.board.slice(y * COLS, y * COLS + COLS),
+    }));
+
+    // Removing from the bottom up leaves the remaining indices valid: taking
+    // out row y only shifts the rows above it, which are all still to come.
+    for (const y of full) {
       this.board.copyWithin(COLS, 0, y * COLS);
       this.board.fill(0, 0, COLS);
-      y++;
     }
-    return cleared;
+
+    this.onClear(broken);
+    return full.length;
   }
 
   queueGarbage(n) {

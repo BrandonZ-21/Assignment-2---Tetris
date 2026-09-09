@@ -86,7 +86,9 @@ export class Room {
     const list = [];
     for (const ws of this.sockets()) {
       const p = ws.deserializeAttachment();
-      if (p) list.push(p);
+      // A socket can still be listed for a moment after it closes; the
+      // "gone" flag drops it from the roster without waiting for a timer.
+      if (p && !p.gone) list.push(p);
     }
     list.sort((a, b) => a.joined - b.joined);
     return list;
@@ -275,7 +277,11 @@ export class Room {
   }
 
   async beginRound() {
-    this.meta.phase = 'countdown';
+    // The room runs no timer of its own — no setInterval, no setTimeout, no
+    // alarm. A sleeping room costs nothing. Every client counts itself down
+    // from the same COUNTDOWN_MS and they start together; the room is already
+    // accepting play by the time they do.
+    this.meta.phase = 'playing';
     this.meta.round++;
     this.meta.seed = (Math.random() * 2147483647) | 0;
     await this.saveMeta();
@@ -286,15 +292,6 @@ export class Room {
 
     this.broadcast({ t: 'start', seed: this.meta.seed, in: COUNTDOWN_MS });
     this.broadcast(this.roster());
-
-    this.ctx.waitUntil((async () => {
-      await new Promise((r) => setTimeout(r, COUNTDOWN_MS));
-      await this.loadMeta();
-      if (this.meta.phase !== 'countdown') return;
-      this.meta.phase = 'playing';
-      await this.saveMeta();
-      this.broadcast({ t: 'go' });
-    })());
   }
 
   async kill(ws) {
@@ -332,20 +329,26 @@ export class Room {
   async handleGone(ws) {
     await this.loadMeta();
     const me = ws.deserializeAttachment();
+    if (me) this.update(ws, { gone: true, alive: false });
     try { ws.close(1000, 'bye'); } catch (_) { /* already closed */ }
-    if (me && me.alive && this.meta.phase === 'playing') {
-      const aliveAfter = this.players().filter((p) => p.alive && p.id !== me.id).length;
-      this.update(ws, { alive: false, place: aliveAfter + 1 });
-      if (aliveAfter <= 1) await this.endRound();
+
+    const remaining = this.players();
+
+    if (remaining.length === 0) {
+      this.meta.phase = 'lobby';
+      await this.saveMeta();
+      return;
     }
-    // The socket is gone from getWebSockets() by the time listeners re-read it.
-    setTimeout(() => {
-      if (this.sockets().length === 0) {
-        this.meta.phase = 'lobby';
-        this.saveMeta();
+
+    // Someone walking out mid-round counts the same as topping out.
+    if (me && me.alive && this.meta.phase === 'playing') {
+      const stillAlive = remaining.filter((p) => p.alive).length;
+      if (stillAlive <= 1) {
+        await this.endRound();
         return;
       }
-      this.broadcast(this.roster());
-    }, 0);
+    }
+
+    this.broadcast(this.roster());
   }
 }
